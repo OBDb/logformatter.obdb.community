@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Parser</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        textarea { width: 100%; height: 200px; margin-bottom: 10px; }
+        button { display: block; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <h2>Paste Log Data</h2>
+    <textarea id="inputLog" placeholder="Paste your log here..."></textarea>
+    <button onclick="processLog()">Extract</button>
+    <h2>Extracted Data</h2>
+    <textarea id="outputLog" readonly></textarea>
+    <script>
+        function getCommandType(command) {
+            // Remove parameters to get base command type
+            const baseCommand = command.replace(/[0-9A-Fa-f]+(?:OFF|ON|SV[0-9A-Fa-f]+)?$/, '');
+            return baseCommand;
+        }
+
+        function normalizeCommand(originalCommand) {
+            // Remove the '>' prefix for processing
+            command = originalCommand.substring(1);
+            
+            // Handle the three types of commands
+            if (command.startsWith('01')) {  // Service 01
+                return '>' + command.substring(0, 4);
+            } else if (command.startsWith('09')) {  // Service 09
+                return '>' + command.substring(0, 4);
+            } else if (command.startsWith('21')) {  // Service 21
+                return '>' + command.substring(0, 4);
+            } else if (command.startsWith('22')) {  // Service 22
+                return '>' + command.substring(0, 6);
+            }
+            return originalCommand;  // Return as-is for non-matching commands
+        }
+
+        function processLog() {
+            const inputText = document.getElementById("inputLog").value;
+            const lines = inputText.split(/\r?\n/);
+            let vinGroup = "";
+            let currentCommand = "";
+            let currentResponses = [];
+            let atCommands = new Map();
+            const commandResponses = new Map();  // Use Map to maintain insertion order
+            
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return; // Skip empty lines
+                
+                // Skip lines that look like commands but don't have '>' prefix
+                if (/^(?:0[19]|21|22)[0-9A-F]{2,4}$/i.test(line)) return;
+                
+                if (line.startsWith('>')) {
+                    if (currentCommand && !currentCommand.startsWith('>AT')) {
+                        if (vinGroup) {
+                            const latestATCommands = [...atCommands.values()]
+                                .filter(cmd => !cmd.includes('ATRV'))
+                                .sort();
+                            const normalizedCommand = normalizeCommand(currentCommand);
+                            const commandKey = `${latestATCommands.join(' ')}\n${normalizedCommand}`.trim();
+                            const responseGroup = [...currentResponses];
+                            
+                            if (!commandResponses.has(commandKey)) {
+                                commandResponses.set(commandKey, []);
+                            }
+                            
+                            // Store original command with the response group
+                            const commandResponsePair = {
+                                originalCommand: currentCommand,
+                                responses: responseGroup
+                            };
+                            
+                            // Only add if we don't already have these exact responses
+                            const existingGroups = commandResponses.get(commandKey);
+                            if (!existingGroups.some(group => 
+                                group.responses.length === responseGroup.length && 
+                                group.responses.every((resp, idx) => resp === responseGroup[idx])
+                            )) {
+                                existingGroups.push(commandResponsePair);
+                            }
+                        }
+                    }
+                    
+                    if (line.startsWith('>AT')) {
+                        const atCommand = line.substring(1);
+                        const commandType = getCommandType(atCommand);
+                        atCommands.set(commandType, line);
+                    } else {
+                        currentCommand = line;
+                        currentResponses = [];
+                    }
+                } else {
+                    currentResponses.push(line);
+                    if (currentCommand === '>0902') {
+                        vinGroup += line;
+                    }
+                }
+            });
+            
+            // Handle last command
+            if (currentCommand && !currentCommand.startsWith('>AT')) {
+                if (vinGroup) {
+                    const latestATCommands = [...atCommands.values()]
+                        .filter(cmd => !cmd.includes('ATRV'))
+                        .sort();
+                    const normalizedCommand = normalizeCommand(currentCommand);
+                    const commandKey = `${latestATCommands.join(' ')}\n${normalizedCommand}`.trim();
+                    const responseGroup = [...currentResponses];
+                    
+                    if (!commandResponses.has(commandKey)) {
+                        commandResponses.set(commandKey, []);
+                    }
+                    
+                    const commandResponsePair = {
+                        originalCommand: currentCommand,
+                        responses: responseGroup
+                    };
+                    
+                    const existingGroups = commandResponses.get(commandKey);
+                    if (!existingGroups.some(group => 
+                        group.responses.length === responseGroup.length && 
+                        group.responses.every((resp, idx) => resp === responseGroup[idx])
+                    )) {
+                        existingGroups.push(commandResponsePair);
+                    }
+                }
+            }
+            
+            let output = `VIN: ${vinGroup}\n\n`;
+            
+            // Convert Map to array of entries and sort by normalized command
+            [...commandResponses.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([cmd, groups]) => {
+                output += `${cmd}\n`;  // Show normalized command in configuration
+                groups.forEach((group, idx) => {
+                    if (group.originalCommand !== normalizeCommand(group.originalCommand)) {
+                        output += `${group.originalCommand}\n`;  // Show original command if different
+                    }
+                    output += group.responses.join('\n');
+                    if (idx < groups.length - 1) {
+                        output += '\n\n';
+                    }
+                });
+                output += '\n\n';
+            });
+            
+            document.getElementById("outputLog").value = output.trim();
+        }
+    </script>
+</body>
+</html>
