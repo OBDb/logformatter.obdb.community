@@ -125,11 +125,12 @@
         function processLog() {
             const inputText = document.getElementById("inputLog").value;
             const lines = inputText.split(/\r?\n/);
-            let vinGroup = "";
+            const vinGroups = new Map(); // Map<VIN, Map<commandKey, commandResponsePairs[]>>
+            let currentVIN = "";
             let currentCommand = "";
             let currentResponses = [];
             let atCommands = new Map();
-            const commandResponses = new Map();
+            let commandResponses = new Map(); // Map<commandKey, commandResponsePairs[]>
             
             lines.forEach(line => {
                 line = line.trim();
@@ -139,7 +140,7 @@
                 
                 if (line.startsWith('>')) {
                     if (currentCommand && !currentCommand.startsWith('>AT')) {
-                        if (vinGroup) {
+                        if (currentVIN) {
                             const latestATCommands = [...atCommands.values()]
                                 .filter(cmd => !cmd.includes('ATRV'))
                                 .sort();
@@ -171,19 +172,46 @@
                         const commandType = getCommandType(atCommand);
                         atCommands.set(commandType, line);
                     } else {
+                        if (line === '>0902') {
+                            // Starting a new VIN section, let's commit all of the current responses to the current vin.
+                            if (currentVIN) {
+                                if (!vinGroups.has(currentVIN)) {
+                                    vinGroups.set(currentVIN, new Map());
+                                }
+                                const vinCommands = vinGroups.get(currentVIN);
+                                // Merge commandResponses with vinCommands, adding commandResponsesPairs to existing commandKeys if they already exist, or adding them if not.
+                                for (const [commandKey, commandResponsePairs] of commandResponses.entries()) {
+                                    const existingGroups = vinCommands.get(commandKey);
+                                    if (existingGroups) {
+                                        for (const commandResponsePair of commandResponsePairs) {
+                                            if (!existingGroups.some(group => 
+                                                group.responses.length === commandResponsePair.responses.length && 
+                                                group.responses.every((resp, idx) => resp === commandResponsePair.responses[idx])
+                                            )) {
+                                                existingGroups.push(commandResponsePair);
+                                            }
+                                        }
+                                    } else {
+                                        vinCommands.set(commandKey, commandResponsePairs);
+                                    }
+                                }
+                            }
+                            currentVIN = "";
+                            commandResponses = new Map(); // Map<commandKey, commandResponsePairs[]>
+                        }
                         currentCommand = line;
                         currentResponses = [];
                     }
                 } else {
                     currentResponses.push(line);
                     if (currentCommand === '>0902') {
-                        vinGroup += (vinGroup ? '\n' : '') + line;
+                        currentVIN += (currentVIN ? '\n' : '') + line;
                     }
                 }
             });
             
             if (currentCommand && !currentCommand.startsWith('>AT')) {
-                if (vinGroup) {
+                if (currentVIN) {
                     const latestATCommands = [...atCommands.values()]
                         .filter(cmd => !cmd.includes('ATRV'))
                         .sort();
@@ -209,22 +237,49 @@
                     }
                 }
             }
-            
-            let output = '>0902\n' + vinGroup + '\n\n';
-            
-            [...commandResponses.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([cmd, groups]) => {
-                output += `${cmd}\n`;
-                groups.forEach((group, idx) => {
-                    if (group.originalCommand !== normalizeCommand(group.originalCommand)) {
-                        output += `${group.originalCommand}\n`;
+
+            if (currentVIN) {
+                if (!vinGroups.has(currentVIN)) {
+                    vinGroups.set(currentVIN, new Map());
+                }
+                const vinCommands = vinGroups.get(currentVIN);
+                // Merge commandResponses with vinCommands, adding commandResponsesPairs to existing commandKeys if they already exist, or adding them if not.
+                for (const [commandKey, commandResponsePairs] of commandResponses.entries()) {
+                    const existingGroups = vinCommands.get(commandKey);
+                    if (existingGroups) {
+                        for (const commandResponsePair of commandResponsePairs) {
+                            if (!existingGroups.some(group => 
+                                group.responses.length === commandResponsePair.responses.length && 
+                                group.responses.every((resp, idx) => resp === commandResponsePair.responses[idx])
+                            )) {
+                                existingGroups.push(commandResponsePair);
+                            }
+                        }
+                    } else {
+                        vinCommands.set(commandKey, commandResponsePairs);
                     }
-                    output += group.responses.join('\n');
-                    if (idx < groups.length - 1) {
-                        output += '\n\n';
-                    }
+                }
+            }
+
+            let output = '';
+            // For each vin in vinGroups:
+            for (const [vin, commands] of vinGroups.entries()) {
+                output += '\n\n>0902\n' + vin + '\n\n';
+
+                [...commands.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([cmd, groups]) => {
+                    output += `${cmd}\n`;
+                    groups.forEach((group, idx) => {
+                        if (group.originalCommand !== normalizeCommand(group.originalCommand)) {
+                            output += `${group.originalCommand}\n`;
+                        }
+                        output += group.responses.join('\n');
+                        if (idx < groups.length - 1) {
+                            output += '\n\n';
+                        }
+                    });
+                    output += '\n\n';
                 });
-                output += '\n\n';
-            });
+            }
             
             document.getElementById("outputLog").value = output.trim();
         }
