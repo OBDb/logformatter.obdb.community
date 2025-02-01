@@ -5,39 +5,121 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Log Parser</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        textarea { width: 100%; height: 200px; margin-bottom: 10px; }
-        button { display: block; margin-bottom: 10px; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body { 
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+            flex: 1;
+            min-height: 0;
+        }
+        
+        .column {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        
+        textarea { 
+            flex: 1;
+            width: 100%;
+            margin: 10px 0;
+            resize: none;
+        }
+        
+        .input-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .file-upload {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .file-upload input[type="file"] {
+            max-width: 200px;
+        }
+        
+        h2 {
+            margin: 0;
+        }
     </style>
 </head>
 <body>
-    <h2>Paste Log Data</h2>
-    <textarea id="inputLog" placeholder="Paste your log here..."></textarea>
-    <button onclick="processLog()">Extract</button>
-    <h2>Extracted Data</h2>
-    <textarea id="outputLog" readonly></textarea>
+    <div class="container">
+        <div class="column">
+            <h2>Paste Log Data</h2>
+            <div class="input-controls">
+                <div class="file-upload">
+                    <input type="file" id="fileInput" accept=".txt,.log">
+                </div>
+            </div>
+            <textarea id="inputLog" placeholder="Paste your log here or use the file upload above..."></textarea>
+        </div>
+        <div class="column">
+            <h2>Extracted Data</h2>
+            <textarea id="outputLog" readonly></textarea>
+        </div>
+    </div>
     <script>
+        const inputLog = document.getElementById('inputLog');
+        const fileInput = document.getElementById('fileInput');
+        
+        // Handle file upload
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                try {
+                    const text = await file.text();
+                    inputLog.value = text;
+                    processLog();
+                } catch (err) {
+                    console.error('Error reading file:', err);
+                    alert('Error reading file. Please try again.');
+                }
+            }
+        });
+
+        // Handle paste and input events
+        inputLog.addEventListener('input', () => {
+            processLog();
+        });
+
         function getCommandType(command) {
-            // Remove parameters to get base command type
             const baseCommand = command.replace(/[0-9A-Fa-f]+(?:OFF|ON|SV[0-9A-Fa-f]+)?$/, '');
             return baseCommand;
         }
 
         function normalizeCommand(originalCommand) {
-            // Remove the '>' prefix for processing
             command = originalCommand.substring(1);
             
-            // Handle the three types of commands
-            if (command.startsWith('01')) {  // Service 01
+            if (command.startsWith('01')) {
                 return '>' + command.substring(0, 4);
-            } else if (command.startsWith('09')) {  // Service 09
+            } else if (command.startsWith('09')) {
                 return '>' + command.substring(0, 4);
-            } else if (command.startsWith('21')) {  // Service 21
+            } else if (command.startsWith('21')) {
                 return '>' + command.substring(0, 4);
-            } else if (command.startsWith('22')) {  // Service 22
+            } else if (command.startsWith('22')) {
                 return '>' + command.substring(0, 6);
             }
-            return originalCommand;  // Return as-is for non-matching commands
+            return originalCommand;
         }
 
         function processLog() {
@@ -47,13 +129,12 @@
             let currentCommand = "";
             let currentResponses = [];
             let atCommands = new Map();
-            const commandResponses = new Map();  // Use Map to maintain insertion order
+            const commandResponses = new Map();
             
             lines.forEach(line => {
                 line = line.trim();
-                if (!line) return; // Skip empty lines
+                if (!line) return;
                 
-                // Skip lines that look like commands but don't have '>' prefix
                 if (/^(?:0[19]|21|22)[0-9A-F]{2,4}$/i.test(line)) return;
                 
                 if (line.startsWith('>')) {
@@ -70,13 +151,11 @@
                                 commandResponses.set(commandKey, []);
                             }
                             
-                            // Store original command with the response group
                             const commandResponsePair = {
                                 originalCommand: currentCommand,
                                 responses: responseGroup
                             };
                             
-                            // Only add if we don't already have these exact responses
                             const existingGroups = commandResponses.get(commandKey);
                             if (!existingGroups.some(group => 
                                 group.responses.length === responseGroup.length && 
@@ -98,12 +177,11 @@
                 } else {
                     currentResponses.push(line);
                     if (currentCommand === '>0902') {
-                        vinGroup += line;
+                        vinGroup += (vinGroup ? '\n' : '') + line;
                     }
                 }
             });
             
-            // Handle last command
             if (currentCommand && !currentCommand.startsWith('>AT')) {
                 if (vinGroup) {
                     const latestATCommands = [...atCommands.values()]
@@ -132,14 +210,13 @@
                 }
             }
             
-            let output = `VIN: ${vinGroup}\n\n`;
+            let output = '>0902\n' + vinGroup + '\n\n';
             
-            // Convert Map to array of entries and sort by normalized command
             [...commandResponses.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([cmd, groups]) => {
-                output += `${cmd}\n`;  // Show normalized command in configuration
+                output += `${cmd}\n`;
                 groups.forEach((group, idx) => {
                     if (group.originalCommand !== normalizeCommand(group.originalCommand)) {
-                        output += `${group.originalCommand}\n`;  // Show original command if different
+                        output += `${group.originalCommand}\n`;
                     }
                     output += group.responses.join('\n');
                     if (idx < groups.length - 1) {
