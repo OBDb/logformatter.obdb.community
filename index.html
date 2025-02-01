@@ -318,9 +318,14 @@
             let output = '';
             // For each vin in vinGroups:
             for (const [vin, commands] of vinGroups.entries()) {
-                output += '\n\n#-------------------------------------------\n# VIN\n' + vin + '\n\n';
+                output += '\n\n>0902\n' + vin + '\n\n';
 
-                [...commands.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([cmd, groups]) => {
+                [...commands.entries()].sort((a, b) => {
+                    // Get the last line of each command string (the actual command)
+                    const lastLineA = a[0].split('\n').pop();
+                    const lastLineB = b[0].split('\n').pop();
+                    return lastLineA.localeCompare(lastLineB);
+                }).forEach(([cmd, groups]) => {
                     output += `${cmd}\n`;
                     groups.forEach((group, idx) => {
                         if (group.originalCommand !== normalizeCommand(group.originalCommand)) {
