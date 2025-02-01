@@ -162,6 +162,38 @@
             return '';
         }
 
+        function generateOBDbConfig(atCommands, command) {
+            const config = {
+            };
+            
+            // Split atCommands by space and process each command
+            for (const cmd of atCommands.split(' ')) {
+                const cmdStr = cmd.substring(1);  // Remove '>' prefix
+                
+                if (cmdStr.startsWith('ATSH')) {
+                    config['hdr'] = cmdStr.substring(4);
+                } else if (cmdStr.startsWith('ATTA')) {
+                    config['tst'] = cmdStr.substring(4);
+                } else if (cmdStr.startsWith('ATCEA')) {
+                    config['eax'] = cmdStr.substring(5);
+                } else if (cmdStr.startsWith('ATCRA')) {
+                    config['rax'] = cmdStr.substring(5);
+                } else if (cmdStr.startsWith('ATST')) {
+                    config['tmo'] = cmdStr.substring(4);
+                }
+            }
+            
+            // Parse the main command
+            const cmdStr = command.substring(1);  // Remove '>' prefix
+            if (cmdStr.startsWith('22')) {
+                config.cmd = { "22": cmdStr.substring(2) };
+            } else if (cmdStr.startsWith('21')) {
+                config.cmd = { "21": cmdStr.substring(2) };
+            }
+            
+            return JSON.stringify(config);
+        }
+
         function processLog() {
             const inputText = document.getElementById("inputLog").value;
             const lines = inputText.split(/\r?\n/);
@@ -321,12 +353,25 @@
                 output += '\n\n#-------------------------------------\n# VIN\n' + vin + '\n\n';
 
                 [...commands.entries()].sort((a, b) => {
-                    // Get the last line of each command string (the actual command)
                     const lastLineA = a[0].split('\n').pop();
                     const lastLineB = b[0].split('\n').pop();
                     return lastLineA.localeCompare(lastLineB);
                 }).forEach(([cmd, groups]) => {
                     output += `${cmd}\n`;
+                    
+                    // Generate OBDb configuration
+                    let atCommands = '';
+                    cmd.split('\n').forEach(line => {
+                        if (line.startsWith('>AT')) {
+                            atCommands = line;
+                        }
+                    });
+                    
+                    const lastCommand = cmd.split('\n').pop();
+                    if (lastCommand && (lastCommand.startsWith('>22') || lastCommand.startsWith('>21'))) {
+                        output += generateOBDbConfig(atCommands, lastCommand) + '\n';
+                    }
+                    
                     groups.forEach((group, idx) => {
                         if (group.originalCommand !== normalizeCommand(group.originalCommand)) {
                             output += `${group.originalCommand}\n`;
