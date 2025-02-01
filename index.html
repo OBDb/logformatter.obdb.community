@@ -217,7 +217,7 @@
                 if (line.startsWith('419')) return;
                 if (!line.startsWith('>') && line.length % 2 != 1) return;  // Responses should always have an odd number of bytes.
 
-                if (line === 'ATZ' || line === '>ATZ') {
+                if (line === 'ATZ' || line === '>ATZ' || line === 'ATD' || line === '>ATD' ) {
                     atCommands = new Map();
                 } else if (line.startsWith('>')) {
                     if (line.length == 1) { return; }
