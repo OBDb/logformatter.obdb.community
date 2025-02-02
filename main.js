@@ -105,6 +105,7 @@ function processLog() {
     let currentResponses = [];
     let atCommands = new Map();
     let commandResponses = new Map(); // Map<commandKey, commandResponsePairs[]>
+    let hasVINResponse = false;
     
     lines.forEach(line => {
         line = line.trim();
@@ -124,7 +125,7 @@ function processLog() {
         } else if (line.startsWith('>')) {
             if (line.length == 1) { return; }
             if (currentCommand && !currentCommand.startsWith('>AT')) {
-                if (currentVIN) {
+                if (currentVIN || !currentCommand.startsWith('>0902')) {  // Allow empty VIN if not a 0902 command
                     const latestATCommands = [...atCommands.values()]
                         .filter(cmd => !cmd.includes('ATRV'))
                         .sort();
@@ -159,13 +160,14 @@ function processLog() {
                 atCommands.set(commandType, line);
             } else {
                 if (line === '>0902') {
-                    // Starting a new VIN section, let's commit all of the current responses to the current vin.
-                    if (currentVIN) {
+                    // Starting a new VIN section
+                    hasVINResponse = false;
+                    if (currentVIN || commandResponses.size > 0) {  // Save current group if we have a VIN or any commands
                         if (!vinGroups.has(currentVIN)) {
                             vinGroups.set(currentVIN, new Map());
                         }
                         const vinCommands = vinGroups.get(currentVIN);
-                        // Merge commandResponses with vinCommands, adding commandResponsesPairs to existing commandKeys if they already exist, or adding them if not.
+                        // Merge commandResponses with vinCommands
                         for (const [commandKey, commandResponsePairs] of commandResponses.entries()) {
                             const existingGroups = vinCommands.get(commandKey);
                             if (existingGroups) {
@@ -183,7 +185,7 @@ function processLog() {
                         }
                     }
                     currentVIN = "";
-                    commandResponses = new Map(); // Map<commandKey, commandResponsePairs[]>
+                    commandResponses = new Map();
                 }
                 currentCommand = line;
                 currentResponses = [];
@@ -191,13 +193,15 @@ function processLog() {
         } else {
             currentResponses.push(line);
             if (currentCommand === '>0902') {
+                hasVINResponse = true;
                 currentVIN += (currentVIN ? '\n' : '') + line;
             }
         }
     });
     
+    // Handle the last command group
     if (currentCommand && !currentCommand.startsWith('>AT')) {
-        if (currentVIN) {
+        if (currentVIN || !currentCommand.startsWith('>0902')) {  // Allow empty VIN if not a 0902 command
             const latestATCommands = [...atCommands.values()]
                 .filter(cmd => !cmd.includes('ATRV'))
                 .sort();
@@ -226,12 +230,12 @@ function processLog() {
         }
     }
 
-    if (currentVIN) {
+    // Save the final command group
+    if (currentVIN || commandResponses.size > 0) {  // Save if we have a VIN or any commands
         if (!vinGroups.has(currentVIN)) {
             vinGroups.set(currentVIN, new Map());
         }
         const vinCommands = vinGroups.get(currentVIN);
-        // Merge commandResponses with vinCommands, adding commandResponsesPairs to existing commandKeys if they already exist, or adding them if not.
         for (const [commandKey, commandResponsePairs] of commandResponses.entries()) {
             const existingGroups = vinCommands.get(commandKey);
             if (existingGroups) {
@@ -252,7 +256,11 @@ function processLog() {
     let output = '';
     // For each vin in vinGroups:
     for (const [vin, commands] of vinGroups.entries()) {
-        output += '\n\n#-------------------------------------\n# VIN\n' + vin + '\n\n';
+        if (vin) {
+            output += '\n\n#-------------------------------------\n# VIN\n' + vin + '\n\n';
+        } else {
+            output += '\n\n#-------------------------------------\n# NO VIN\n\n';
+        }
 
         [...commands.entries()].sort((a, b) => {
             const lastLineA = a[0].split('\n').pop();
