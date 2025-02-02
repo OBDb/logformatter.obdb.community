@@ -82,6 +82,8 @@ function generateOBDbConfig(atCommands, command) {
             config['rax'] = cmdStr.substring(5);
         } else if (cmdStr.startsWith('ATST')) {
             config['tmo'] = cmdStr.substring(4);
+        } else if (cmdStr.startsWith('ATFCSM1')) {
+            config['fcm1'] = true;
         }
     }
     
